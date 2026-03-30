@@ -1,0 +1,41 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build fat JAR
+        run: mvn package -q
+        working-directory: plugins/cdata-changelog-review
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: plugins/cdata-changelog-review/target/cdata-changelog-review-mcp.jar
+          generate_release_notes: true
+
+      - name: Publish release branch with built JAR
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B release
+          cp plugins/cdata-changelog-review/target/cdata-changelog-review-mcp.jar plugins/cdata-changelog-review/
+          git add -f plugins/cdata-changelog-review/cdata-changelog-review-mcp.jar
+          git commit -m "Release ${{ github.ref_name }} — built JARs"
+          git push -f origin release

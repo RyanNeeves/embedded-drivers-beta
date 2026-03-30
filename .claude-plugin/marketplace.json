@@ -1,0 +1,20 @@
+{
+  "name": "cdata-embedded-drivers",
+  "owner": {
+    "name": "Ryan Neeves"
+  },
+  "metadata": {
+    "description": "MCP tools for CData embedded / OEM driver management",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "cdata-changelog-review",
+      "source": "cdata-changelog-review",
+      "description": "Review CData OEM connector changelogs and discover available releases",
+      "version": "1.0.0",
+      "keywords": ["cdata", "changelog", "oem", "connectors", "releases"],
+      "category": "developer-tools"
+    }
+  ]
+}
