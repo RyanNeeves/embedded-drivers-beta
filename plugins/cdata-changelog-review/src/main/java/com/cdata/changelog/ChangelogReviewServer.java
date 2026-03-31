@@ -11,7 +11,6 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 
 import java.io.*;
 import java.net.*;
-import java.nio.file.*;
 import java.util.*;
 import java.util.regex.*;
 
@@ -31,6 +30,7 @@ public class ChangelogReviewServer {
     private static final List<String>              EDITIONS;
     private static final Map<String, List<String>> EDITION_SUBPATHS;
     private static final Map<String, String>       EDITION_CHANGELOG_CATEGORY;
+    private static final Map<String, Integer>      HARDCODED_RELEASES;
 
     static {
         EDITIONS = Collections.unmodifiableList(Arrays.asList(
@@ -68,8 +68,6 @@ public class ChangelogReviewServer {
         hc.put("v24u1", 9060);
         HARDCODED_RELEASES = Collections.unmodifiableMap(hc);
     }
-
-    private static final Map<String, Integer> HARDCODED_RELEASES;
 
     // ============================================================
     //  HTTP HELPERS
@@ -111,9 +109,7 @@ public class ChangelogReviewServer {
 
     private static String normalizeEdition(String edition) {
         String eu = edition.toUpperCase(Locale.ROOT).trim();
-        for (String key : EDITION_SUBPATHS.keySet()) {
-            if (key.toUpperCase(Locale.ROOT).equals(eu)) return key;
-        }
+        if (EDITION_SUBPATHS.containsKey(eu)) return eu;
         throw new IllegalArgumentException(
             "Unknown edition '" + edition + "'. Valid editions: " + String.join(", ", EDITIONS));
     }
@@ -203,6 +199,16 @@ public class ChangelogReviewServer {
         return i < 0 ? "" : s.substring(0, i + 1);
     }
 
+    private static String xmlUnescape(String s) {
+        return s.replace("&amp;", "&").replace("&lt;", "<")
+                .replace("&gt;", ">").replace("&apos;", "'").replace("&quot;", "\"");
+    }
+
+    private static String fileNameFromKey(String key) {
+        int slash = key.lastIndexOf('/');
+        return slash >= 0 ? key.substring(slash + 1) : key;
+    }
+
     // ============================================================
     //  S3 OPERATIONS
     // ============================================================
@@ -220,7 +226,7 @@ public class ChangelogReviewServer {
             if (res.status != 200)
                 throw new IOException("S3 list returned HTTP " + res.status + " for prefix: " + prefix);
             Matcher km = Pattern.compile("<Key>([^<]+)</Key>").matcher(res.body);
-            while (km.find()) keys.add(km.group(1));
+            while (km.find()) keys.add(xmlUnescape(km.group(1)));
             if (res.body.contains("<IsTruncated>true</IsTruncated>")) {
                 Matcher tm = Pattern.compile("<NextContinuationToken>([^<]+)</NextContinuationToken>").matcher(res.body);
                 continuationToken = tm.find() ? tm.group(1) : null;
@@ -294,6 +300,7 @@ public class ChangelogReviewServer {
             sb.append("\nPlease ask the user which release they want.");
             return err(stripTrailing(sb.toString()));
         } catch (Exception e) {
+            e.printStackTrace(System.err);
             return err("Error checking releases: " + e.getMessage());
         }
     }
@@ -323,10 +330,22 @@ public class ChangelogReviewServer {
         List<String> fields = new ArrayList<String>();
         StringBuilder cur = new StringBuilder();
         boolean inQuotes = false;
-        for (char c : line.toCharArray()) {
-            if (c == '"')              inQuotes = !inQuotes;
-            else if (c == ',' && !inQuotes) { fields.add(cur.toString()); cur = new StringBuilder(); }
-            else                       cur.append(c);
+        char[] chars = line.toCharArray();
+        for (int i = 0; i < chars.length; i++) {
+            char c = chars[i];
+            if (c == '"') {
+                if (inQuotes && i + 1 < chars.length && chars[i + 1] == '"') {
+                    cur.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                fields.add(cur.toString());
+                cur = new StringBuilder();
+            } else {
+                cur.append(c);
+            }
         }
         fields.add(cur.toString());
         return fields.toArray(new String[0]);
@@ -353,7 +372,7 @@ public class ChangelogReviewServer {
         props.put("edition",              prop("string",  "One of: JDBC, ADO .NET FRAMEWORK, ADO .NET STANDARD, ODBC UNIX, ODBC WINDOWS, PYTHON MAC, PYTHON UNIX, PYTHON WINDOWS"));
         props.put("obj_name",             prop("string",  "Connector OBJNAME (e.g. Salesforce)"));
         props.put("year",                 prop("integer", "4-digit year for the major version changelog (e.g. 2025)"));
-        props.put("after_build",          prop("integer", "Return entries with build number greater than this value"));
+        props.put("after_build",          prop("integer", "Return entries after this build number. Build numbers = days since 2000-01-01 UTC."));
         props.put("after_release_number", prop("integer", "Look up build number from this release, then filter entries after it"));
         return new McpSchema.JsonSchema("object", props,
             Arrays.asList("edition", "obj_name", "year"), null, null, null);
@@ -376,6 +395,7 @@ public class ChangelogReviewServer {
             }
             return ok(stripTrailing(sb.toString()));
         } catch (Exception e) {
+            e.printStackTrace(System.err);
             return err("Error listing releases: " + e.getMessage());
         }
     }
@@ -400,8 +420,6 @@ public class ChangelogReviewServer {
         try {
             int baselineBuild;
             if (afterReleaseNumber != null) {
-                CallToolResult releaseCheck = validateRelease(year, afterReleaseNumber);
-                if (releaseCheck != null) return releaseCheck;
                 String tag = releaseTag(year, afterReleaseNumber);
 
                 if (HARDCODED_RELEASES.containsKey(tag)) {
@@ -412,16 +430,19 @@ public class ChangelogReviewServer {
                     outer:
                     for (String p : paths) {
                         for (String key : listS3Objects(p + "/")) {
-                            Map<String, Object> parsed = parseBuildMarker(Paths.get(key).getFileName().toString(), edition);
+                            Map<String, Object> parsed = parseBuildMarker(fileNameFromKey(key), edition);
                             if (parsed != null && ((String) parsed.get("obj_name")).equalsIgnoreCase(objName)) {
                                 found = (Integer) parsed.get("build_number");
                                 break outer;
                             }
                         }
                     }
-                    if (found == null)
+                    if (found == null) {
+                        CallToolResult releaseCheck = validateRelease(year, afterReleaseNumber);
+                        if (releaseCheck != null) return releaseCheck;
                         return err("No build marker found for '" + objName + "' in " +
                                    edition + " / " + tag + ". Verify the OBJNAME spelling.");
+                    }
                     baselineBuild = found;
                 }
             } else {
@@ -460,7 +481,10 @@ public class ChangelogReviewServer {
                     r.containsKey("Description")     ? r.get("Description")     : ""));
             }
             return ok(stripTrailing(sb.toString()));
-        } catch (Exception e) { return err("Error: " + e.getMessage()); }
+        } catch (Exception e) {
+                e.printStackTrace(System.err);
+                return err("Error: " + e.getMessage());
+            }
     }
 
     // ============================================================
@@ -479,10 +503,8 @@ public class ChangelogReviewServer {
                 McpSchema.Tool.builder()
                     .name("list_releases")
                     .description(
-                        "List all available CData OEM build releases from the S3 bucket, newest first. " +
-                        "IMPORTANT: You MUST call this tool BEFORE get_changelog to discover which releases actually exist. " +
-                        "Do NOT guess or assume release numbers — only releases returned by this tool are valid. " +
-                        "For example, only v25u2 may exist even if the user mentions U1 or U3. " +
+                        "List available CData connector releases, newest first. " +
+                        "MUST be called before get_changelog — only use release numbers returned here. " +
                         "No arguments required.")
                     .inputSchema(noArgsSchema())
                     .build(),
@@ -493,18 +515,16 @@ public class ChangelogReviewServer {
                 McpSchema.Tool.builder()
                     .name("get_changelog")
                     .description(
-                        "Get changelog / what's new / release notes for a CData connector since a specific build or release. " +
-                        "IMPORTANT: Before calling this tool, you MUST first call list_releases to discover valid releases. " +
-                        "Do NOT invent or guess release numbers — only use values returned by list_releases. " +
-                        "Requires obj_name (e.g. MongoDB, Salesforce — case-insensitive), year (4-digit, e.g. 2025), and edition. " +
-                        "Also requires EXACTLY ONE of: " +
-                        "(1) after_build — an integer build number. Use when the user says 'since build 9000'. " +
-                        "(2) after_release_number — the U-number of a release (e.g. 2 for U2). This looks up the build number " +
-                        "from the .bld marker files in that release and returns only changelog entries AFTER that build. " +
-                        "Use when the user says 'since U2' or 'what changed after the last release'. " +
-                        "If the user doesn't specify a build or release, ASK them: 'Would you like changes since a specific release " +
-                        "(e.g. since U2) or since a specific build number (e.g. since build 9000)?' Present BOTH options. " +
-                        "If the user doesn't specify an edition, ASK which one. " +
+                        "Get changelog entries for a CData connector since a build or release. " +
+                        "Call list_releases first to discover valid releases. " +
+                        "Requires: obj_name (e.g. MongoDB, Salesforce), year (e.g. 2025), edition. " +
+                        "Plus EXACTLY ONE of: " +
+                        "after_build (integer build number) or after_release_number (U-number, e.g. 2 for U2). " +
+                        "Build numbers = days since 2000-01-01 UTC. To convert a date to a build number: " +
+                        "days between 2000-01-01 and the target date. " +
+                        "E.g. 2025-10-28 = 9432, 2026-03-01 = 9556. Use this for date-based queries like 'changes in the last month'. " +
+                        "If the user doesn't specify a build or release, ASK: release (e.g. U2) or build number? " +
+                        "If edition not specified, ASK. " +
                         "Editions: JDBC, ADO .NET FRAMEWORK, ADO .NET STANDARD, ODBC UNIX, ODBC WINDOWS, PYTHON MAC, PYTHON UNIX, PYTHON WINDOWS.")
                     .inputSchema(getChangelogSchema())
                     .build(),

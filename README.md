@@ -32,7 +32,7 @@ Review CData connector changelogs and discover available releases.
 No download required — install directly via the plugin marketplace:
 
 ```
-/plugin marketplace add YOUR_USERNAME/cdata-embedded-drivers
+/plugin marketplace add RyanNeeves/embedded-drivers-beta
 /plugin install cdata-changelog-review@cdata-embedded-drivers
 ```
 
@@ -41,7 +41,7 @@ No download required — install directly via the plugin marketplace:
 Download `cdata-changelog-review-mcp.jar` from the [latest release](../../releases/latest), or build from source:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/cdata-embedded-drivers.git
+git clone https://github.com/RyanNeeves/embedded-drivers-beta.git
 cd cdata-embedded-drivers/plugins/cdata-changelog-review
 mvn package
 ```
@@ -87,3 +87,22 @@ This server communicates over **stdio** and works with any MCP client that suppo
 ```
 /full/path/to/java -jar /absolute/path/to/cdata-changelog-review-mcp.jar
 ```
+
+## Uninstall
+
+#### Claude Code
+
+```
+/plugin uninstall cdata-changelog-review@cdata-embedded-drivers
+/plugin marketplace remove cdata-embedded-drivers
+```
+
+To also clear the cached files:
+
+```bash
+rm -rf ~/.claude/plugins/cache/cdata-embedded-drivers
+```
+
+#### Claude Desktop, Cursor, and other MCP clients
+
+Remove the `cdata-changelog-review` entry from your config file and delete the JAR.
