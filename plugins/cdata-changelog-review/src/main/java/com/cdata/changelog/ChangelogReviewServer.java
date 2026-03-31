@@ -369,8 +369,9 @@ public class ChangelogReviewServer {
         props.put("edition",              prop("string",  "One of: JDBC, ADO .NET FRAMEWORK, ADO .NET STANDARD, ODBC UNIX, ODBC WINDOWS, PYTHON MAC, PYTHON UNIX, PYTHON WINDOWS"));
         props.put("obj_name",             prop("string",  "Connector OBJNAME (e.g. Salesforce)"));
         props.put("major_version",        prop("integer", "Major version year from list_releases (e.g. 2025). Each major version has its own independent changelog."));
-        props.put("after_build",          prop("integer", "Return entries after this build number. Build numbers = days since 2000-01-01 UTC."));
         props.put("after_release_number", prop("integer", "The U-number exactly as shown by list_releases. For '2025 U1' use 1, for '2025 U2' use 2. Must be >= 1. Do NOT subtract or compute — use the number directly."));
+        props.put("after_date",           prop("string",  "Return entries after this date (ISO 8601 format, e.g. '2025-10-28'). Use for date-based queries like 'changes in the last month'."));
+        props.put("after_build",          prop("integer", "Return entries after this build number. Only use if the user provides a specific build number. Prefer after_date or after_release_number instead."));
         return new McpSchema.JsonSchema("object", props,
             Arrays.asList("edition", "obj_name", "major_version"), null, null, null);
     }
@@ -395,21 +396,48 @@ public class ChangelogReviewServer {
         }
     }
 
+    private static int dateToBuild(String iso) {
+        String[] parts = iso.split("-");
+        if (parts.length != 3) throw new IllegalArgumentException("Invalid date format, expected YYYY-MM-DD: " + iso);
+        int y = Integer.parseInt(parts[0]);
+        int m = Integer.parseInt(parts[1]);
+        int d = Integer.parseInt(parts[2]);
+        long epoch2000 = 946684800000L; // 2000-01-01T00:00:00 UTC in millis
+        Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+        cal.set(y, m - 1, d, 0, 0, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        return (int) ((cal.getTimeInMillis() - epoch2000) / 86400000L);
+    }
+
     private static CallToolResult handleGetChangelog(Map<String, Object> args) {
         Integer majorVersion       = optIntArg(args, "major_version");
         Integer afterBuild         = optIntArg(args, "after_build");
         Integer afterReleaseNumber = optIntArg(args, "after_release_number");
+        String  afterDate          = args.get("after_date") != null ? args.get("after_date").toString() : null;
 
         if (majorVersion == null)
             return err("major_version is required. Call list_releases to see available major versions.");
+
+        // Count how many "after" params were provided
+        int afterCount = (afterBuild != null ? 1 : 0) + (afterReleaseNumber != null ? 1 : 0) + (afterDate != null ? 1 : 0);
+        if (afterCount == 0)
+            return err("Provide exactly one of: after_release_number, after_date, or after_build.");
+        if (afterCount > 1)
+            return err("Provide only one of: after_release_number, after_date, or after_build.");
+
         if (afterReleaseNumber != null && afterReleaseNumber < 1)
             return err("after_release_number must be >= 1. Use the U-number directly from list_releases (e.g. 1 for U1, 2 for U2).");
         if (afterBuild != null && afterBuild < 1)
-            return err("after_build must be a positive build number (days since 2000-01-01).");
-        if (afterBuild == null && afterReleaseNumber == null)
-            return err("Provide either after_build or after_release_number.");
-        if (afterBuild != null && afterReleaseNumber != null)
-            return err("Provide only one of after_build or after_release_number, not both.");
+            return err("after_build must be a positive build number.");
+
+        // Convert after_date to a build number
+        if (afterDate != null) {
+            try {
+                afterBuild = dateToBuild(afterDate);
+            } catch (Exception e) {
+                return err("Invalid after_date: " + e.getMessage());
+            }
+        }
 
         String edition;
         try { edition = normalizeEdition((String) args.get("edition")); }
@@ -521,17 +549,16 @@ public class ChangelogReviewServer {
                 McpSchema.Tool.builder()
                     .name("get_changelog")
                     .description(
-                        "Get changelog entries for a CData connector since a build or release. " +
+                        "Get changelog entries for a CData connector since a release, date, or build. " +
                         "Each major version has its own independent changelog. " +
                         "IMPORTANT: Call list_releases first. Do NOT invent or guess release numbers. " +
                         "Requires: obj_name (e.g. MongoDB, Salesforce), edition, and major_version (from list_releases, e.g. 2025). " +
                         "The major_version is NOT the current calendar year — it is the version year from list_releases. " +
                         "Plus EXACTLY ONE of: " +
-                        "after_build (integer build number) or after_release_number (U-number, e.g. 2 for U2). " +
-                        "Build numbers = days since 2000-01-01 UTC. To convert a date to a build number: " +
-                        "days between 2000-01-01 and the target date. " +
-                        "E.g. 2025-10-28 = 9432, 2026-03-01 = 9556. Use this for date-based queries like 'changes in the last month'. " +
-                        "If the user doesn't specify a build or release, ASK: release (e.g. 2024 U2) or build number? " +
+                        "after_release_number (U-number, e.g. 2 for U2), " +
+                        "after_date (ISO 8601 date, e.g. '2025-10-28' — use for 'changes in the last month'), or " +
+                        "after_build (integer build number). " +
+                        "If the user doesn't specify a release, date, or build, ASK. " +
                         "If edition not specified, ASK. " +
                         "Editions: JDBC, ADO .NET FRAMEWORK, ADO .NET STANDARD, ODBC UNIX, ODBC WINDOWS, PYTHON MAC, PYTHON UNIX, PYTHON WINDOWS.")
                     .inputSchema(getChangelogSchema())
