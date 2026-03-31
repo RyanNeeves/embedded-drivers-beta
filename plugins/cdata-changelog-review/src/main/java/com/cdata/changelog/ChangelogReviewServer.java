@@ -505,6 +505,7 @@ public class ChangelogReviewServer {
                     .description(
                         "List available CData connector releases, newest first. " +
                         "MUST be called before get_changelog — only use release numbers returned here. " +
+                        "Do NOT guess or assume release numbers — only releases returned by this tool are valid. " +
                         "No arguments required.")
                     .inputSchema(noArgsSchema())
                     .build(),
@@ -516,7 +517,7 @@ public class ChangelogReviewServer {
                     .name("get_changelog")
                     .description(
                         "Get changelog entries for a CData connector since a build or release. " +
-                        "Call list_releases first to discover valid releases. " +
+                        "IMPORTANT: Call list_releases first. Do NOT invent or guess release numbers. " +
                         "Requires: obj_name (e.g. MongoDB, Salesforce), year (e.g. 2025), edition. " +
                         "Plus EXACTLY ONE of: " +
                         "after_build (integer build number) or after_release_number (U-number, e.g. 2 for U2). " +

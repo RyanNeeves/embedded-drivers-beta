@@ -97,15 +97,19 @@ This server communicates over **stdio** and works with any MCP client that suppo
 /plugin marketplace remove cdata-embedded-drivers
 ```
 
-To also clear the cached files:
+If the plugin doesn't fully uninstall, clear the cached files and plugin registry manually:
 
 ```bash
 # macOS/Linux
 rm -rf ~/.claude/plugins/cache/cdata-embedded-drivers
+rm -rf ~/.claude/plugins/marketplaces/cdata-embedded-drivers
 
 # Windows (PowerShell)
 Remove-Item -Recurse -Force "$env:USERPROFILE\.claude\plugins\cache\cdata-embedded-drivers"
+Remove-Item -Recurse -Force "$env:USERPROFILE\.claude\plugins\marketplaces\cdata-embedded-drivers"
 ```
+
+Then remove any leftover entries from `~/.claude/plugins/installed_plugins.json` and `~/.claude/plugins/known_marketplaces.json`.
 
 #### Claude Desktop, Cursor, and other MCP clients
 
