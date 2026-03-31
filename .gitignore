@@ -34,3 +34,6 @@ Thumbs.db
 
 ### Claude Code ###
 .claude/
+
+### Local docs ###
+RELEASE.md
