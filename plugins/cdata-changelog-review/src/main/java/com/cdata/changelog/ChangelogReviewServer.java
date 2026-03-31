@@ -60,7 +60,16 @@ public class ChangelogReviewServer {
         cc.put("PYTHON UNIX",        "python");
         cc.put("PYTHON WINDOWS",     "python");
         EDITION_CHANGELOG_CATEGORY = Collections.unmodifiableMap(cc);
+
+        Map<String, Integer> hc = new LinkedHashMap<String, Integer>();
+        hc.put("v25u1", 9434);
+        hc.put("v24u3", 9175);
+        hc.put("v24u2", 9111);
+        hc.put("v24u1", 9060);
+        HARDCODED_RELEASES = Collections.unmodifiableMap(hc);
     }
+
+    private static final Map<String, Integer> HARDCODED_RELEASES;
 
     // ============================================================
     //  HTTP HELPERS
@@ -222,20 +231,41 @@ public class ChangelogReviewServer {
         return keys;
     }
 
+    private static Map<String, Object> makeRelease(int yy, int rel) {
+        Map<String, Object> r = new LinkedHashMap<String, Object>();
+        String tag = String.format("v%du%d", yy, rel);
+        r.put("tag",            tag);
+        r.put("year",           2000 + yy);
+        r.put("release_number", rel);
+        r.put("label",          String.format("%d U%d", 2000 + yy, rel));
+        if (HARDCODED_RELEASES.containsKey(tag))
+            r.put("build_number", HARDCODED_RELEASES.get(tag));
+        return r;
+    }
+
     private static List<Map<String, Object>> listAvailableReleases() throws IOException {
         HttpResult res = httpGet(BASE_URL + "/?list-type=2&prefix=v&delimiter=/");
         if (res.status != 200) throw new IOException("S3 release discovery returned HTTP " + res.status);
+
+        Set<String> seen = new HashSet<String>();
         List<Map<String, Object>> releases = new ArrayList<Map<String, Object>>();
+
         Matcher m = Pattern.compile("<Prefix>v(\\d{2})u(\\d+)/</Prefix>").matcher(res.body);
         while (m.find()) {
             int yy = Integer.parseInt(m.group(1)), rel = Integer.parseInt(m.group(2));
-            Map<String, Object> r = new LinkedHashMap<String, Object>();
-            r.put("tag",            String.format("v%du%d", yy, rel));
-            r.put("year",           2000 + yy);
-            r.put("release_number", rel);
-            r.put("label",          String.format("%d U%d", 2000 + yy, rel));
+            Map<String, Object> r = makeRelease(yy, rel);
+            seen.add((String) r.get("tag"));
             releases.add(r);
         }
+
+        for (Map.Entry<String, Integer> e : HARDCODED_RELEASES.entrySet()) {
+            if (!seen.contains(e.getKey())) {
+                Matcher hm = Pattern.compile("v(\\d{2})u(\\d+)").matcher(e.getKey());
+                if (hm.matches())
+                    releases.add(makeRelease(Integer.parseInt(hm.group(1)), Integer.parseInt(hm.group(2))));
+            }
+        }
+
         Collections.sort(releases, new Comparator<Map<String, Object>>() {
             @Override public int compare(Map<String, Object> a, Map<String, Object> b) {
                 int ya = (Integer) a.get("year"), yb = (Integer) b.get("year");
@@ -338,8 +368,12 @@ public class ChangelogReviewServer {
             List<Map<String, Object>> releases = listAvailableReleases();
             if (releases.isEmpty()) return ok("No releases found.");
             StringBuilder sb = new StringBuilder("Available releases (newest first):\n");
-            for (Map<String, Object> r : releases)
-                sb.append(String.format("  %s  (tag: %s)%n", r.get("label"), r.get("tag")));
+            for (Map<String, Object> r : releases) {
+                if (r.containsKey("build_number"))
+                    sb.append(String.format("  %s  (tag: %s, build: %d)%n", r.get("label"), r.get("tag"), r.get("build_number")));
+                else
+                    sb.append(String.format("  %s  (tag: %s)%n", r.get("label"), r.get("tag")));
+            }
             return ok(stripTrailing(sb.toString()));
         } catch (Exception e) {
             return err("Error listing releases: " + e.getMessage());
@@ -368,23 +402,28 @@ public class ChangelogReviewServer {
             if (afterReleaseNumber != null) {
                 CallToolResult releaseCheck = validateRelease(year, afterReleaseNumber);
                 if (releaseCheck != null) return releaseCheck;
-                String tag         = releaseTag(year, afterReleaseNumber);
-                List<String> paths = editionSubpaths(edition, tag);
-                Integer found = null;
-                outer:
-                for (String p : paths) {
-                    for (String key : listS3Objects(p + "/")) {
-                        Map<String, Object> parsed = parseBuildMarker(Paths.get(key).getFileName().toString(), edition);
-                        if (parsed != null && ((String) parsed.get("obj_name")).equalsIgnoreCase(objName)) {
-                            found = (Integer) parsed.get("build_number");
-                            break outer;
+                String tag = releaseTag(year, afterReleaseNumber);
+
+                if (HARDCODED_RELEASES.containsKey(tag)) {
+                    baselineBuild = HARDCODED_RELEASES.get(tag);
+                } else {
+                    List<String> paths = editionSubpaths(edition, tag);
+                    Integer found = null;
+                    outer:
+                    for (String p : paths) {
+                        for (String key : listS3Objects(p + "/")) {
+                            Map<String, Object> parsed = parseBuildMarker(Paths.get(key).getFileName().toString(), edition);
+                            if (parsed != null && ((String) parsed.get("obj_name")).equalsIgnoreCase(objName)) {
+                                found = (Integer) parsed.get("build_number");
+                                break outer;
+                            }
                         }
                     }
+                    if (found == null)
+                        return err("No build marker found for '" + objName + "' in " +
+                                   edition + " / " + tag + ". Verify the OBJNAME spelling.");
+                    baselineBuild = found;
                 }
-                if (found == null)
-                    return err("No build marker found for '" + objName + "' in " +
-                               edition + " / " + tag + ". Verify the OBJNAME spelling.");
-                baselineBuild = found;
             } else {
                 baselineBuild = afterBuild;
             }
