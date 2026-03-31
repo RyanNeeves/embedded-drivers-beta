@@ -385,12 +385,8 @@ public class ChangelogReviewServer {
             if (releases.isEmpty()) return ok("No releases found.");
             StringBuilder sb = new StringBuilder("Available releases (newest first):\n");
             for (Map<String, Object> r : releases) {
-                if (r.containsKey("build_number"))
-                    sb.append(String.format("  %s  (major_version: %d, release_number: %d, build: %d)%n",
-                        r.get("label"), r.get("year"), r.get("release_number"), r.get("build_number")));
-                else
-                    sb.append(String.format("  %s  (major_version: %d, release_number: %d)%n",
-                        r.get("label"), r.get("year"), r.get("release_number")));
+                sb.append(String.format("  %s  (major_version: %d, release_number: %d)%n",
+                    r.get("label"), r.get("year"), r.get("release_number")));
             }
             return ok(stripTrailing(sb.toString()));
         } catch (Exception e) {
