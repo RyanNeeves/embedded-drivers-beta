@@ -1,6 +1,6 @@
 # cdata-embedded-drivers
 
-A Claude Code plugin marketplace for CData embedded / OEM driver tools.
+MCP tools for CData embedded / OEM driver management.
 
 ## Available plugins
 
@@ -23,24 +23,9 @@ Review CData OEM connector changelogs and discover available releases.
 
 ## Prerequisites
 
-- Java 17+ (must be on your system PATH)
+- Java 17+
 
-## Install via Claude Code
-
-```
-/plugin marketplace add YOUR_USERNAME/cdata-embedded-drivers
-/plugin install cdata-changelog-review@cdata-embedded-drivers
-```
-
-To update later:
-
-```
-/plugin marketplace update
-```
-
-## Manual setup
-
-If you prefer not to use the plugin marketplace, you can configure individual MCP servers directly.
+## Setup
 
 ### Download the JAR
 
@@ -82,12 +67,6 @@ Add to your config file:
 }
 ```
 
-#### Claude Code (CLI)
-
-```bash
-claude mcp add cdata-changelog-review -- /full/path/to/java -jar /absolute/path/to/cdata-changelog-review-mcp.jar
-```
-
 #### Cursor
 
 Add to `.cursor/mcp.json` in your project root or `~/.cursor/mcp.json` globally:
@@ -127,3 +106,18 @@ Any client that supports stdio-based MCP servers can use this:
 ```
 
 The server reads JSON-RPC from stdin and writes responses to stdout.
+
+### Claude Code plugin marketplace
+
+Claude Code users can install directly via the plugin system:
+
+```
+/plugin marketplace add YOUR_USERNAME/cdata-embedded-drivers
+/plugin install cdata-changelog-review@cdata-embedded-drivers
+```
+
+To update later:
+
+```
+/plugin marketplace update
+```

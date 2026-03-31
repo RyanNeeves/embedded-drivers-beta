@@ -440,9 +440,11 @@ public class ChangelogReviewServer {
                 McpSchema.Tool.builder()
                     .name("list_releases")
                     .description(
-                        "List all available CData OEM build releases, newest first. " +
-                        "Use this FIRST to discover what releases exist (e.g. 2025 U1, 2025 U2). " +
-                        "No arguments required. Call this before the changelog tool if the user hasn't specified a release.")
+                        "List all available CData OEM build releases from the S3 bucket, newest first. " +
+                        "IMPORTANT: You MUST call this tool BEFORE get_changelog to discover which releases actually exist. " +
+                        "Do NOT guess or assume release numbers — only releases returned by this tool are valid. " +
+                        "For example, only v25u2 may exist even if the user mentions U1 or U3. " +
+                        "No arguments required.")
                     .inputSchema(noArgsSchema())
                     .build(),
                 (exchange, request) -> handleListReleases(
@@ -452,14 +454,18 @@ public class ChangelogReviewServer {
                 McpSchema.Tool.builder()
                     .name("get_changelog")
                     .description(
-                        "Get changelog / what's new / release notes for a CData connector. " +
-                        "Use when the user asks about changes, updates, fixes, or what's new for a connector. " +
-                        "Requires obj_name (e.g. MongoDB, Salesforce — case-insensitive), year, and edition. " +
-                        "Also requires EXACTLY ONE of: after_build (integer build number) OR after_release_number (e.g. 1 for U1). " +
-                        "If the user says 'since build 9000' use after_build=9000. " +
-                        "If the user says 'since U1' or 'since release 1' use after_release_number=1. " +
-                        "If the user doesn't specify a build or release, ASK them. " +
-                        "If the user doesn't specify an edition, ASK which one they want. " +
+                        "Get changelog / what's new / release notes for a CData connector since a specific build or release. " +
+                        "IMPORTANT: Before calling this tool, you MUST first call list_releases to discover valid releases. " +
+                        "Do NOT invent or guess release numbers — only use values returned by list_releases. " +
+                        "Requires obj_name (e.g. MongoDB, Salesforce — case-insensitive), year (4-digit, e.g. 2025), and edition. " +
+                        "Also requires EXACTLY ONE of: " +
+                        "(1) after_build — an integer build number. Use when the user says 'since build 9000'. " +
+                        "(2) after_release_number — the U-number of a release (e.g. 2 for U2). This looks up the build number " +
+                        "from the .bld marker files in that release and returns only changelog entries AFTER that build. " +
+                        "Use when the user says 'since U2' or 'what changed after the last release'. " +
+                        "If the user doesn't specify a build or release, ASK them: 'Would you like changes since a specific release " +
+                        "(e.g. since U2) or since a specific build number (e.g. since build 9000)?' Present BOTH options. " +
+                        "If the user doesn't specify an edition, ASK which one. " +
                         "Editions: JDBC, ADO .NET FRAMEWORK, ADO .NET STANDARD, ODBC UNIX, ODBC WINDOWS, PYTHON MAC, PYTHON UNIX, PYTHON WINDOWS.")
                     .inputSchema(getChangelogSchema())
                     .build(),
