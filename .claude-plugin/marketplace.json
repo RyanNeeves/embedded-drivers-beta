@@ -9,7 +9,12 @@
     {
       "name": "cdata-changelog-review",
       "description": "Review CData OEM connector changelogs and discover available releases",
-      "source": "./plugins/cdata-changelog-review",
+      "source": {
+        "source": "github",
+        "repo": "RyanNeeves/embedded-drivers-beta",
+        "path": "plugins/cdata-changelog-review",
+        "ref": "release"
+      },
       "category": "developer-tools"
     }
   ]
