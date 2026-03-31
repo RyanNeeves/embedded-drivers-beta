@@ -370,7 +370,7 @@ public class ChangelogReviewServer {
         props.put("obj_name",             prop("string",  "Connector OBJNAME (e.g. Salesforce)"));
         props.put("major_version",        prop("integer", "Major version year from list_releases (e.g. 2025). Each major version has its own independent changelog."));
         props.put("after_build",          prop("integer", "Return entries after this build number. Build numbers = days since 2000-01-01 UTC."));
-        props.put("after_release_number", prop("integer", "The U-number of the release to filter after (e.g. 2 for U2). The release must belong to the specified major_version."));
+        props.put("after_release_number", prop("integer", "The U-number exactly as shown by list_releases. For '2025 U1' use 1, for '2025 U2' use 2. Must be >= 1. Do NOT subtract or compute — use the number directly."));
         return new McpSchema.JsonSchema("object", props,
             Arrays.asList("edition", "obj_name", "major_version"), null, null, null);
     }
@@ -406,6 +406,10 @@ public class ChangelogReviewServer {
 
         if (majorVersion == null)
             return err("major_version is required. Call list_releases to see available major versions.");
+        if (afterReleaseNumber != null && afterReleaseNumber < 1)
+            return err("after_release_number must be >= 1. Use the U-number directly from list_releases (e.g. 1 for U1, 2 for U2).");
+        if (afterBuild != null && afterBuild < 1)
+            return err("after_build must be a positive build number (days since 2000-01-01).");
         if (afterBuild == null && afterReleaseNumber == null)
             return err("Provide either after_build or after_release_number.");
         if (afterBuild != null && afterReleaseNumber != null)
