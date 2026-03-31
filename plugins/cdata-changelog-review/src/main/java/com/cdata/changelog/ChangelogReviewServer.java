@@ -77,7 +77,7 @@ public class ChangelogReviewServer {
     }
 
     private static HttpResult httpGet(String urlStr) throws IOException {
-        URL url = new URL(urlStr);
+        URL url = URI.create(urlStr).toURL();
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setConnectTimeout(30_000);
         conn.setReadTimeout(30_000);
@@ -103,6 +103,11 @@ public class ChangelogReviewServer {
     // ============================================================
     //  UTILITIES
     // ============================================================
+
+    private static final Pattern PAT_BLD_ADO    = Pattern.compile("^System\\.Data\\.CData\\.(.+)\\.(\\d+)$");
+    private static final Pattern PAT_BLD_JDBC   = Pattern.compile("^cdata\\.jdbc\\.(.+)\\.(\\d+)$");
+    private static final Pattern PAT_BLD_ODBC   = Pattern.compile("^[Cc][Dd]ata\\.[Oo][Dd][Bb][Cc]\\.(.+)\\.(\\d+)$");
+    private static final Pattern PAT_BLD_PYTHON = Pattern.compile("^(.+)\\.(\\d+)$");
 
     private static String normalizeEdition(String edition) {
         String eu = edition.toUpperCase(Locale.ROOT).trim();
@@ -133,10 +138,10 @@ public class ChangelogReviewServer {
         String body = filename.substring(4);
         String eu = edition.toUpperCase(Locale.ROOT);
         Pattern pat;
-        if      (eu.startsWith("ADO"))    pat = Pattern.compile("^System\\.Data\\.CData\\.(.+)\\.(\\d+)$");
-        else if (eu.equals("JDBC"))       pat = Pattern.compile("^cdata\\.jdbc\\.(.+)\\.(\\d+)$");
-        else if (eu.startsWith("ODBC"))   pat = Pattern.compile("^[Cc][Dd]ata\\.[Oo][Dd][Bb][Cc]\\.(.+)\\.(\\d+)$");
-        else if (eu.startsWith("PYTHON")) pat = Pattern.compile("^(.+)\\.(\\d+)$");
+        if      (eu.startsWith("ADO"))    pat = PAT_BLD_ADO;
+        else if (eu.equals("JDBC"))       pat = PAT_BLD_JDBC;
+        else if (eu.startsWith("ODBC"))   pat = PAT_BLD_ODBC;
+        else if (eu.startsWith("PYTHON")) pat = PAT_BLD_PYTHON;
         else return null;
         Matcher m = pat.matcher(body);
         if (m.matches()) {
@@ -156,13 +161,6 @@ public class ChangelogReviewServer {
             catch (NumberFormatException ignored) {}
         }
         return -1;
-    }
-
-    private static int intArg(Map<String, Object> args, String key) {
-        Object val = args.get(key);
-        if (val instanceof Number) return ((Number) val).intValue();
-        if (val instanceof String) return Integer.parseInt(((String) val).trim());
-        throw new IllegalArgumentException("Missing or invalid argument: " + key);
     }
 
     private static Integer optIntArg(Map<String, Object> args, String key) {
@@ -241,8 +239,6 @@ public class ChangelogReviewServer {
         r.put("year",           2000 + yy);
         r.put("release_number", rel);
         r.put("label",          String.format("%d U%d", 2000 + yy, rel));
-        if (HARDCODED_RELEASES.containsKey(tag))
-            r.put("build_number", HARDCODED_RELEASES.get(tag));
         return r;
     }
 
@@ -283,23 +279,17 @@ public class ChangelogReviewServer {
      * Validates that a release tag exists in the bucket.
      * Returns null if valid, or a CallToolResult error listing available releases.
      */
-    private static CallToolResult validateRelease(int year, int releaseNumber) {
-        try {
-            String tag = releaseTag(year, releaseNumber);
-            List<Map<String, Object>> releases = listAvailableReleases();
-            for (Map<String, Object> r : releases) {
-                if (tag.equals(r.get("tag"))) return null; // found
-            }
-            StringBuilder sb = new StringBuilder();
-            sb.append("Release '" + tag + "' does not exist in the bucket.\n\nAvailable releases:\n");
-            for (Map<String, Object> r : releases)
-                sb.append(String.format("  %s  (year=%d, release_number=%d)%n", r.get("label"), r.get("year"), r.get("release_number")));
-            sb.append("\nPlease ask the user which release they want.");
-            return err(stripTrailing(sb.toString()));
-        } catch (Exception e) {
-            e.printStackTrace(System.err);
-            return err("Error checking releases: " + e.getMessage());
+    private static CallToolResult validateRelease(int year, int releaseNumber, List<Map<String, Object>> releases) {
+        String tag = releaseTag(year, releaseNumber);
+        for (Map<String, Object> r : releases) {
+            if (tag.equals(r.get("tag"))) return null; // found
         }
+        StringBuilder sb = new StringBuilder();
+        sb.append("Release '" + tag + "' does not exist in the bucket.\n\nAvailable releases:\n");
+        for (Map<String, Object> r : releases)
+            sb.append(String.format("  %s  (year=%d, release_number=%d)%n", r.get("label"), r.get("year"), r.get("release_number")));
+        sb.append("\nPlease ask the user which release they want.");
+        return err(stripTrailing(sb.toString()));
     }
 
     // ============================================================
@@ -439,11 +429,16 @@ public class ChangelogReviewServer {
             }
         }
 
+        String editionRaw = args.get("edition") != null ? args.get("edition").toString() : null;
+        if (editionRaw == null || editionRaw.trim().isEmpty())
+            return err("edition is required.");
         String edition;
-        try { edition = normalizeEdition((String) args.get("edition")); }
+        try { edition = normalizeEdition(editionRaw); }
         catch (IllegalArgumentException e) { return err(e.getMessage()); }
 
-        String objName = (String) args.get("obj_name");
+        String objName = args.get("obj_name") != null ? args.get("obj_name").toString() : null;
+        if (objName == null || objName.trim().isEmpty())
+            return err("obj_name is required.");
         String category = EDITION_CHANGELOG_CATEGORY.get(edition);
 
         try {
@@ -454,6 +449,9 @@ public class ChangelogReviewServer {
                 if (HARDCODED_RELEASES.containsKey(tag)) {
                     baselineBuild = HARDCODED_RELEASES.get(tag);
                 } else {
+                    // Fetch releases once for both marker lookup validation and error reporting
+                    List<Map<String, Object>> releases = listAvailableReleases();
+
                     List<String> paths = editionSubpaths(edition, tag);
                     Integer found = null;
                     outer:
@@ -467,7 +465,7 @@ public class ChangelogReviewServer {
                         }
                     }
                     if (found == null) {
-                        CallToolResult releaseCheck = validateRelease(majorVersion, afterReleaseNumber);
+                        CallToolResult releaseCheck = validateRelease(majorVersion, afterReleaseNumber, releases);
                         if (releaseCheck != null) return releaseCheck;
                         return err("No build marker found for '" + objName + "' in " +
                                    edition + " / " + tag + ". Verify the OBJNAME spelling.");
@@ -528,7 +526,7 @@ public class ChangelogReviewServer {
         StdioServerTransportProvider transport =
             new StdioServerTransportProvider(McpJsonDefaults.getMapper());
 
-        McpSyncServer server = McpServer.sync(transport)
+        McpServer.sync(transport)
             .serverInfo("cdata-changelog-review-mcp", "1.0.0")
             .capabilities(ServerCapabilities.builder().tools(true).build())
 
