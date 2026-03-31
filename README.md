@@ -35,6 +35,7 @@ No download required — install directly via the plugin marketplace:
 ```
 /plugin marketplace add RyanNeeves/embedded-drivers-beta
 /plugin install cdata-changelog-review@cdata-embedded-drivers
+/reload-plugins
 ```
 
 #### Claude Desktop, Cursor, and other MCP clients
@@ -96,6 +97,7 @@ This server communicates over **stdio** and works with any MCP client that suppo
 ```
 /plugin uninstall cdata-changelog-review@cdata-embedded-drivers
 /plugin marketplace remove cdata-embedded-drivers
+/reload-plugins 
 ```
 
 If the plugin doesn't fully uninstall, clear the cached files and plugin registry manually:
