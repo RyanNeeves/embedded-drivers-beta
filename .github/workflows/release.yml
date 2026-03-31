@@ -30,12 +30,12 @@ jobs:
           files: plugins/cdata-changelog-review/target/cdata-changelog-review-mcp.jar
           generate_release_notes: true
 
-      - name: Publish release branch with built JAR
+      - name: Update JAR on master
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -B release
+          git checkout master
           cp plugins/cdata-changelog-review/target/cdata-changelog-review-mcp.jar plugins/cdata-changelog-review/
           git add -f plugins/cdata-changelog-review/cdata-changelog-review-mcp.jar
-          git commit -m "Release ${{ github.ref_name }} — built JARs"
-          git push -f origin release
+          git commit -m "Release ${{ github.ref_name }} — built JAR"
+          git push origin master
