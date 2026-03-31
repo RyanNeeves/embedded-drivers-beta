@@ -16,8 +16,9 @@ Review CData connector changelogs and discover available releases.
 **Example prompts:**
 
 - "What CData connector releases are available?"
-- "Retrieve all the MongoDB changes since the second release of 2025"
+- "List all the changes made to the MongoDB connector since the second release of 2025"
 - "What changed in the Salesforce ADO connector since build 25.0.9000?"
+- "Were there any changes to the Snowflake connector last week?"
 
 **Supported editions:** JDBC, ADO .NET FRAMEWORK, ADO .NET STANDARD, ODBC UNIX, ODBC WINDOWS, PYTHON MAC, PYTHON UNIX, PYTHON WINDOWS
 
