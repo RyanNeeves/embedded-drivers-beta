@@ -100,7 +100,11 @@ This server communicates over **stdio** and works with any MCP client that suppo
 To also clear the cached files:
 
 ```bash
+# macOS/Linux
 rm -rf ~/.claude/plugins/cache/cdata-embedded-drivers
+
+# Windows (PowerShell)
+Remove-Item -Recurse -Force "$env:USERPROFILE\.claude\plugins\cache\cdata-embedded-drivers"
 ```
 
 #### Claude Desktop, Cursor, and other MCP clients

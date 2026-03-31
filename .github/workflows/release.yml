@@ -35,8 +35,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -B release
-          cp plugins/cdata-changelog-review/target/cdata-changelog-review-mcp.jar plugins/cdata-changelog-review/
-          git add -f plugins/cdata-changelog-review/cdata-changelog-review-mcp.jar
-          git commit -m "Release ${{ github.ref_name }} — built JARs"
+
+          # Create an orphan release branch with plugin files at the root
+          git checkout --orphan release-tmp
+          git rm -rf .
+          cp plugins/cdata-changelog-review/target/cdata-changelog-review-mcp.jar .
+          cp -r plugins/cdata-changelog-review/.claude-plugin .
+          git add cdata-changelog-review-mcp.jar .claude-plugin/
+          git commit -m "Release ${{ github.ref_name }}"
+          git branch -M release-tmp release
           git push -f origin release
