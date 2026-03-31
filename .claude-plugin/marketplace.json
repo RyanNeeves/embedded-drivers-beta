@@ -1,19 +1,15 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "cdata-embedded-drivers",
+  "description": "MCP tools for CData embedded / OEM driver management",
   "owner": {
     "name": "Ryan Neeves"
-  },
-  "metadata": {
-    "description": "MCP tools for CData embedded / OEM driver management",
-    "pluginRoot": "./plugins"
   },
   "plugins": [
     {
       "name": "cdata-changelog-review",
-      "source": "cdata-changelog-review",
       "description": "Review CData OEM connector changelogs and discover available releases",
-      "version": "1.0.0",
-      "keywords": ["cdata", "changelog", "oem", "connectors", "releases"],
+      "source": "./plugins/cdata-changelog-review",
       "category": "developer-tools"
     }
   ]
