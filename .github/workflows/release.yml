@@ -36,12 +36,19 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Create an orphan release branch with plugin files at the root
+          # Build a flat release branch with only the JAR and plugin.json
+          TMPDIR=$(mktemp -d)
+          cp plugins/cdata-changelog-review/target/cdata-changelog-review-mcp.jar "$TMPDIR/"
+          cp -r plugins/cdata-changelog-review/.claude-plugin "$TMPDIR/"
+
           git checkout --orphan release-tmp
-          git rm -rf .
-          cp plugins/cdata-changelog-review/target/cdata-changelog-review-mcp.jar .
-          cp -r plugins/cdata-changelog-review/.claude-plugin .
+          git rm -rf . > /dev/null 2>&1
+          git clean -fdx > /dev/null 2>&1
+
+          cp "$TMPDIR/cdata-changelog-review-mcp.jar" .
+          cp -r "$TMPDIR/.claude-plugin" .
+
           git add cdata-changelog-review-mcp.jar .claude-plugin/
           git commit -m "Release ${{ github.ref_name }}"
-          git branch -M release-tmp release
-          git push -f origin release
+          git push -f origin HEAD:release
+          rm -rf "$TMPDIR"
