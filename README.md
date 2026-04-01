@@ -11,7 +11,7 @@ Review CData connector changelogs and discover available releases.
 | Tool | Description                                                                              |
 |------|------------------------------------------------------------------------------------------|
 | `list_releases` | List CData connector releases (e.g. 2025 U1, 2025 U2)                                    |
-| `get_changelog` | Retrieve changelog entries for a specific connector, filtered by release or build number |
+| `get_changelog` | Retrieve filtered changelog entries for a specific connector |
 
 **Example prompts:**
 
