@@ -1,0 +1,14 @@
+{
+  "name": "cdata-changelog-review",
+  "description": "Review CData OEM connector changelogs and discover available releases",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ryan Neeves"
+  },
+  "mcpServers": {
+    "cdata-changelog-review": {
+      "command": "java",
+      "args": ["-jar", "${CLAUDE_PLUGIN_ROOT}/cdata-changelog-review-mcp.jar"]
+    }
+  }
+}
