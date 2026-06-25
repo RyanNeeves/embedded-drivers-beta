@@ -274,16 +274,25 @@ public class ChangelogReviewServer {
         return m;
     }
 
+    /** Builds a string property constrained to a fixed set of values (rendered as a JSON Schema enum). */
+    private static Map<String, Object> schemaEnum(String description, Collection<String> values) {
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        m.put("type", "string");
+        m.put("description", description);
+        m.put("enum", new ArrayList<String>(values));
+        return m;
+    }
+
     private static McpSchema.JsonSchema getChangelogSchema() {
         Map<String, Object> props = new LinkedHashMap<String, Object>();
-        props.put("edition",              schemaProperty("string",  "One of: JDBC, ADO .NET FRAMEWORK, ADO .NET STANDARD, ODBC UNIX, ODBC WINDOWS, PYTHON MAC, PYTHON UNIX, PYTHON WINDOWS"));
-        props.put("provider_name",         schemaProperty("string",  "Connector provider name (e.g. Salesforce)"));
+        props.put("edition",              schemaEnum("Driver edition.", EDITION_SUBPATHS.keySet()));
+        props.put("connector_name",         schemaProperty("string",  "Connector name (e.g. Salesforce)"));
         props.put("major_version",        schemaProperty("integer", "Major version year from list_releases (e.g. 2025). Each major version has its own independent changelog."));
         props.put("after_release_number", schemaProperty("integer", "The U-number exactly as shown by list_releases. For '2025 U1' use 1, for '2025 U2' use 2. Must be >= 1. Do NOT subtract or compute — use the number directly."));
         props.put("after_date",           schemaProperty("string",  "Return entries after this date (ISO 8601 format, e.g. '2025-10-28'). Use for date-based queries like 'changes in the last month'."));
         props.put("after_build",          schemaProperty("integer", "Return entries after this build number. Only use if the user provides a specific build number. Prefer after_date or after_release_number instead."));
         return new McpSchema.JsonSchema("object", props,
-            Arrays.asList("edition", "provider_name", "major_version"), null, null, null);
+            Arrays.asList("edition", "connector_name", "major_version"), null, null, null);
     }
 
     // -- Argument parsing --
@@ -306,6 +315,30 @@ public class ChangelogReviewServer {
             return sv.isEmpty() ? null : Integer.parseInt(sv);
         }
         return null;
+    }
+
+    private static int requireMajorVersion(Map<String, Object> args) {
+        Integer mv = optIntArg(args, "major_version");
+        if (mv == null)
+            throw new IllegalArgumentException("major_version is required. Call list_releases to see available major versions.");
+        return mv;
+    }
+
+    private static String requireEdition(Map<String, Object> args) {
+        String editionRaw = stringArg(args, "edition");
+        if (editionRaw == null)
+            throw new IllegalArgumentException("edition is required.");
+        String edition = editionRaw.toUpperCase(Locale.ROOT);
+        if (!EDITION_SUBPATHS.containsKey(edition))
+            throw new IllegalArgumentException("Unknown edition '" + editionRaw + "'. Valid editions: " + String.join(", ", EDITION_SUBPATHS.keySet()));
+        return edition;
+    }
+
+    /** Top-level changelog dir for an edition (e.g. "ADO .NET FRAMEWORK" → "ado"). */
+    private static String changelogPathFor(String edition) {
+        String subpath = EDITION_SUBPATHS.get(edition);
+        int slash = subpath.indexOf('/');
+        return slash >= 0 ? subpath.substring(0, slash) : subpath;
     }
 
     // -- Build number discovery --
@@ -349,7 +382,7 @@ public class ChangelogReviewServer {
     /**
      * Resolves a release (major version + U-number) to its build number
      * via hardcoded releases or S3 build marker lookup.
-     * Lists all bld-* markers for the edition and matches provider name case-insensitively.
+     * Lists all bld-* markers for the edition and matches connector name case-insensitively.
      */
     private static int releaseToBuildNumber(int majorVersion, int releaseNumber, String edition, String objName) throws IOException {
         String releaseTag = String.format("v%du%d", majorVersion % 100, releaseNumber);
@@ -377,8 +410,9 @@ public class ChangelogReviewServer {
             if (m.matches() && m.group(1).equalsIgnoreCase(objName))
                 return Integer.parseInt(m.group(2));
         }
-        throw new IllegalArgumentException("No build found for '" + objName + "' in " +
-                edition + " / " + releaseTag + ". Verify the provider name spelling.");
+        throw new IllegalArgumentException(appendConnectorHint(
+                "No build found for '" + objName + "' in " + edition + " / " + releaseTag + ".",
+                edition, majorVersion));
     }
 
     /**
@@ -397,24 +431,39 @@ public class ChangelogReviewServer {
         return stripTrailing(sb.toString());
     }
 
+    // -- Connector name discovery --
+
+    private static List<String> collectConnectors(String edition, int majorVersion) throws IOException {
+        String clPrefix = "changelogs/v" + (majorVersion % 100) + "/" + changelogPathFor(edition) + "/";
+        Set<String> names = new TreeSet<String>();
+        for (String key : listS3Objects(clPrefix)) {
+            String rest = key.substring(clPrefix.length());
+            int slash = rest.indexOf('/');
+            if (slash > 0) names.add(rest.substring(0, slash));
+        }
+        return new ArrayList<String>(names);
+    }
+
+    private static String appendConnectorHint(String message, String edition, int majorVersion) {
+        return message + " Call list_connectors with edition='" + edition +
+               "' and major_version=" + majorVersion + " to see all valid connector names.";
+    }
+
     // -- Handler --
 
     private static CallToolResult handleGetChangelog(Map<String, Object> args) {
-        // -- Validate required params --
-        Integer majorVersion = optIntArg(args, "major_version");
-        if (majorVersion == null)
-            return err("major_version is required. Call list_releases to see available major versions.");
+        int majorVersion;
+        String edition;
+        try {
+            majorVersion = requireMajorVersion(args);
+            edition = requireEdition(args);
+        } catch (IllegalArgumentException e) {
+            return err(e.getMessage());
+        }
 
-        String editionRaw = stringArg(args, "edition");
-        if (editionRaw == null)
-            return err("edition is required.");
-        String edition = editionRaw.toUpperCase(Locale.ROOT);
-        if (!EDITION_SUBPATHS.containsKey(edition))
-            return err("Unknown edition '" + editionRaw + "'. Valid editions: " + String.join(", ", EDITION_SUBPATHS.keySet()));
-
-        String objName = stringArg(args, "provider_name");
+        String objName = stringArg(args, "connector_name");
         if (objName == null)
-            return err("provider_name is required.");
+            return err("connector_name is required.");
 
         // -- Resolve baseline build number from exactly one "after" param --
         Integer afterBuild         = optIntArg(args, "after_build");
@@ -445,10 +494,7 @@ public class ChangelogReviewServer {
         }
 
         // -- Fetch and filter changelog --
-        String subpath = EDITION_SUBPATHS.get(edition);
-        String changelogPath = subpath.indexOf('/') >= 0 ? subpath.substring(0, subpath.indexOf('/')) : subpath;
-        String majorVersionTag = String.format("v%d", majorVersion % 100);
-        String url = CHANGELOG_ROOT + "/" + majorVersionTag + "/" + changelogPath + "/" + objName.toLowerCase(Locale.ROOT) + "/changelog.csv";
+        String url = CHANGELOG_ROOT + "/v" + (majorVersion % 100) + "/" + changelogPathFor(edition) + "/" + objName.toLowerCase(Locale.ROOT) + "/changelog.csv";
 
         HttpResult res;
         try { res = httpGet(url); }
@@ -458,7 +504,9 @@ public class ChangelogReviewServer {
         }
 
         if (res.status == 404)
-            return err("No changelog found for '" + objName + "' (" + edition + ") in major version " + majorVersion + ".");
+            return err(appendConnectorHint(
+                "No changelog found for '" + objName + "' (" + edition + ").",
+                edition, majorVersion));
         if (res.status != 200)
             return err("HTTP " + res.status + " fetching changelog for '" + objName + "'.");
 
@@ -492,6 +540,56 @@ public class ChangelogReviewServer {
     }
 
     // ============================================================
+    //  TOOL: list_connectors
+    // ============================================================
+
+    private static McpSchema.JsonSchema listConnectorsSchema() {
+        Map<String, Object> props = new LinkedHashMap<String, Object>();
+        props.put("edition",       schemaEnum("Driver edition.", EDITION_SUBPATHS.keySet()));
+        props.put("major_version", schemaProperty("integer", "Major version year from list_releases (e.g. 2025)."));
+        return new McpSchema.JsonSchema("object", props,
+            Arrays.asList("edition", "major_version"), null, null, null);
+    }
+
+    private static CallToolResult handleListConnectors(Map<String, Object> args) {
+        int majorVersion;
+        String edition;
+        try {
+            majorVersion = requireMajorVersion(args);
+            edition = requireEdition(args);
+        } catch (IllegalArgumentException e) {
+            return err(e.getMessage());
+        }
+
+        List<String> connectors;
+        try {
+            connectors = collectConnectors(edition, majorVersion);
+        } catch (Exception e) {
+            e.printStackTrace(System.err);
+            return err("Error listing connectors: " + e.getMessage());
+        }
+
+        if (connectors.isEmpty()) {
+            try {
+                boolean exists = false;
+                for (Release r : listAvailableReleases()) {
+                    if (r.year == majorVersion) { exists = true; break; }
+                }
+                if (!exists)
+                    return err("Major version " + majorVersion + " does not exist. Call list_releases to see available major versions.");
+            } catch (IOException ignored) {}
+            return ok("No connectors found for " + edition + " in major version " + majorVersion + ".");
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("%d connector%s available for %s in major version %d (use one verbatim as connector_name in get_changelog):%n",
+            connectors.size(), connectors.size() == 1 ? "" : "s", edition, majorVersion));
+        for (String s : connectors)
+            sb.append("  ").append(s).append('\n');
+        return ok(stripTrailing(sb.toString()));
+    }
+
+    // ============================================================
     //  MAIN
     // ============================================================
 
@@ -500,7 +598,7 @@ public class ChangelogReviewServer {
             new StdioServerTransportProvider(McpJsonDefaults.getMapper());
 
         McpServer.sync(transport)
-            .serverInfo("cdata-changelog-review-mcp", "1.0.0")
+            .serverInfo("cdata-changelog-review-mcp", "1.1.0")
             .capabilities(ServerCapabilities.builder().tools(true).build())
 
             .toolCall(
@@ -508,6 +606,7 @@ public class ChangelogReviewServer {
                     .name("list_releases")
                     .description(
                         "List available CData connector releases, newest first. " +
+                        "Step 1 of the workflow: list_releases → list_connectors → get_changelog. " +
                         "MUST be called before get_changelog — only use release numbers returned here. " +
                         "Do NOT guess or assume release numbers — only releases returned by this tool are valid. " +
                         "No arguments required.")
@@ -518,11 +617,26 @@ public class ChangelogReviewServer {
 
             .toolCall(
                 McpSchema.Tool.builder()
+                    .name("list_connectors")
+                    .description(
+                        "List the valid connectors for an edition and major version. " +
+                        "Step 2 of the workflow: list_releases → list_connectors → get_changelog. " +
+                        "Call this before get_changelog whenever you are unsure of the exact connector name — " +
+                        "do NOT guess connector names. Use a returned name verbatim as get_changelog's connector_name. " +
+                        "Requires edition and major_version.")
+                    .inputSchema(listConnectorsSchema())
+                    .build(),
+                (exchange, request) -> handleListConnectors(
+                    request.arguments() != null ? request.arguments() : Collections.<String, Object>emptyMap()))
+
+            .toolCall(
+                McpSchema.Tool.builder()
                     .name("get_changelog")
                     .description(
                         "Get changelog entries for a CData connector since a release, date, or build. " +
                         "Each major version has its own independent changelog. " +
                         "IMPORTANT: Call list_releases first. Do NOT invent or guess release numbers. " +
+                        "If unsure of the exact connector_name, call list_connectors first and use a name from it verbatim. " +
                         "The major_version is NOT the current calendar year — it is the version year from list_releases. " +
                         "Requires EXACTLY ONE of: " +
                         "after_release_number (U-number, e.g. 2 for U2), " +
